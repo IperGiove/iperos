@@ -1,4 +1,9 @@
+# Chiave privata di firma cosign: NON deve MAI finire in git.
+# (cosign.pub invece va committata, quindi non e' qui sotto.)
 cosign.key
+*.key
+cosign.key.*
+
 _build_*
 output
 _build-*/**

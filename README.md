@@ -1,6 +1,6 @@
-# image-template
+# iperos
 
-This repository is meant to be a template for building your own custom [bootc](https://github.com/bootc-dev/bootc) image. This template is the recommended way to make customizations to any image published by the Universal Blue Project.
+Immagine bootc personalizzata basata su [Origami Linux](https://gitlab.com/origami-linux) (Fedora Atomic) con desktop [Niri](https://github.com/YaLTeR/niri) + [DankMaterialShell (DMS)](https://github.com/AvengeMedia/DankMaterialShell), partendo dal [template Universal Blue](https://github.com/ublue-os/image-template).
 
 # Community
 
