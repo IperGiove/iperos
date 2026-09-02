@@ -107,6 +107,102 @@ ln -s /usr/lib/systemd/user/dms.service /etc/skel/.config/systemd/user/graphical
 mkdir -p /etc/skel/.config/niri/
 cp -rf /ctx/dot_config/niri/config.kdl /etc/skel/.config/niri/
 
+# ---------------------------------------------------------------------------
+# Applicazioni richieste
+# ---------------------------------------------------------------------------
+# Dai repo gia' attivi (Fedora + negativo17 della base ublue).
+# Signal arriva da negativo17, dove il pacchetto si chiama Signal-Desktop.
+dnf -y install \
+    blender \
+    hexchat \
+    transmission-gtk \
+    chromium \
+    openscad \
+    libreoffice-calc \
+    Signal-Desktop
+
+# Visual Studio Code: non e' nei repo Fedora, si usa quello ufficiale Microsoft.
+# Si preferisce l'RPM al Flatpak perche' non e' in sandbox e quindi vede podman,
+# i toolchain e i file di sistema: su una macchina da sviluppo conta.
+rpm --import https://packages.microsoft.com/keys/microsoft.asc
+cat > /etc/yum.repos.d/vscode.repo << 'EOF'
+[code]
+name=Visual Studio Code
+baseurl=https://packages.microsoft.com/yumrepos/vscode
+enabled=1
+autorefresh=1
+gpgcheck=1
+gpgkey=https://packages.microsoft.com/keys/microsoft.asc
+EOF
+dnf -y install code
+
+# NordVPN: repo ufficiale (non e' su Flathub, esiste solo come RPM/DEB).
+# Solo la CLI: il pacchetto nordvpn fornisce /usr/bin/nordvpn e il demone
+# nordvpnd. Serve --exclude perche' "nordvpn" ha Recommends: nordvpn-gui,
+# che altrimenti rientrerebbe da solo (stesso caso di waybar e alacritty).
+rpm --import https://repo.nordvpn.com/gpg/nordvpn_public.asc
+cat > /etc/yum.repos.d/nordvpn.repo << 'EOF'
+[nordvpn]
+name=NordVPN
+baseurl=https://repo.nordvpn.com/yum/nordvpn/centos/$basearch
+enabled=1
+gpgcheck=1
+gpgkey=https://repo.nordvpn.com/gpg/nordvpn_public.asc
+EOF
+dnf -y install nordvpn --exclude=nordvpn-gui
+
+# Il pacchetto crea il gruppo "nordvpn" direttamente in /etc/group, ma su bootc
+# /etc e' stato locale della macchina: un gruppo creato solo in fase di build
+# non e' stabile fra un aggiornamento e l'altro (e "bootc container lint" lo
+# segnala). Lo si dichiara a systemd, che lo ricrea al boot in modo affidabile.
+# Il GID resta a scelta di systemd: nessun file appartiene a questo gruppo,
+# serve solo a decidere chi puo' parlare col demone nordvpnd.
+cat > /usr/lib/sysusers.d/nordvpn.conf << 'EOF'
+#Type Name    ID
+g     nordvpn -
+EOF
+
+# Antares SQL, MongoDB Compass e UltiMaker Cura esistono solo come Flatpak.
+# I Flatpak si installano in /var/lib/flatpak, che e' stato locale della macchina
+# e NON fa parte dell'immagine: vanno quindi installati al primo avvio.
+# Il remote flathub e' gia' fornito dalla base in /etc/flatpak/remotes.d/.
+cat > /usr/libexec/iperos-install-flatpaks << 'EOF'
+#!/usr/bin/bash
+set -euo pipefail
+
+APPS=(
+    it.fabiodistasio.AntaresSQL
+    com.mongodb.Compass
+    com.ultimaker.cura
+)
+
+for app in "${APPS[@]}"; do
+    # Si installa solo cio' che manca: gli aggiornamenti li fa gia'
+    # flatpak-system-update.timer, quindi niente traffico inutile a ogni boot.
+    if ! flatpak info --system "$app" > /dev/null 2>&1; then
+        flatpak install --system --noninteractive flathub "$app" || true
+    fi
+done
+EOF
+chmod +x /usr/libexec/iperos-install-flatpaks
+
+cat > /usr/lib/systemd/system/iperos-flatpaks.service << 'EOF'
+[Unit]
+Description=Installa i Flatpak predefiniti di iperos
+Wants=network-online.target
+After=network-online.target flatpak-add-fedora-repos.service
+ConditionPathExists=/etc/flatpak/remotes.d/flathub.flatpakrepo
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/iperos-install-flatpaks
+
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl enable iperos-flatpaks.service
+
 # Firefox Nightly: non e' nei repo Fedora e non esiste su Flathub (c'e' solo
 # org.mozilla.firefox stabile), quindi si usa il tarball ufficiale Mozilla.
 # Porta con se' il proprio NSS (richiede NSS_3.126, di sistema c'e' 3.123).
