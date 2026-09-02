@@ -2,12 +2,14 @@
 FROM scratch AS ctx
 COPY build_files /
 
-# Base Image (Origami, variante Nvidia)
-FROM registry.gitlab.com/origami-linux/images/origami-nvidia:latest
-
-# Origami imposta un proprio ID in /etc/os-release; lo riportiamo a "fedora"
-# perche' alcuni repo/strumenti a valle si aspettano di girare su Fedora.
-RUN sed -i 's/^ID=.*/ID=fedora/' /etc/os-release
+# Base Image (Universal Blue, variante Nvidia)
+# Immagine minimale: nessun desktop da smontare, driver NVIDIA open (kmod-nvidia,
+# Dual MIT/GPL) gestiti da rpm, ricostruita ogni giorno su Fedora 44.
+# Sostituisce registry.gitlab.com/origami-linux/images/origami-nvidia:latest, che
+# era ferma al 2026-06-02, portava il desktop COSMIC e un driver proprietario
+# installato fuori da rpm.
+# Il suo /etc/os-release ha gia' ID=fedora, quindi non serve piu' correggerlo.
+FROM ghcr.io/ublue-os/base-nvidia:latest
 
 ### MODIFICATIONS
 ## Le personalizzazioni e l'installazione dei pacchetti avvengono in build.sh

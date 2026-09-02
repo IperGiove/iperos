@@ -638,10 +638,13 @@ binds {
     Mod+E { spawn "nautilus"; }
     Mod+Return hotkey-overlay-title="Open a Terminal: gnome-terminal" { spawn "gnome-terminal"; }
 }
-include "dms/binds.kdl"
+// I file dms/*.kdl sono generati da DMS nella home dell'utente e non
+// esistono al primo avvio: senza optional=true niri rifiuta la config
+// e la sessione non parte (verificato con `niri validate`).
+include optional=true "dms/binds.kdl"
 
-include "dms/outputs.kdl"
+include optional=true "dms/outputs.kdl"
 
-include "dms/windowrules.kdl"
+include optional=true "dms/windowrules.kdl"
 
-include "dms/cursor.kdl"
+include optional=true "dms/cursor.kdl"

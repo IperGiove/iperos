@@ -6,4 +6,11 @@ cosign.key.*
 
 _build_*
 output
+_build-*/
 _build-*/**
+
+# Config di test per la VM: contiene una password in chiaro, non va committata.
+disk_config/disk-test.toml
+
+# Artefatti scaricati in locale (es. rpm di cosign per generare le chiavi).
+*.rpm
