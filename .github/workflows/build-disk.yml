@@ -92,6 +92,12 @@ jobs:
         if: inputs.upload-to-s3 != true && github.event_name != 'pull_request'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
+          # Senza "name" entrambi i job della matrice (qcow2 e anaconda-iso)
+          # caricano con il nome predefinito "artifact" e, con overwrite: true,
+          # il secondo che finisce cancella il primo: ne sopravvive uno solo.
+          # DISK_TYPE era gia' calcolato nello step "Prepare environment" ma non
+          # veniva usato da nessuna parte.
+          name: ${{ env.DISK_TYPE }}
           path: ${{ steps.build.outputs.output-directory }}
           if-no-files-found: error
           retention-days: 0
