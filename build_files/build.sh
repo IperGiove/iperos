@@ -38,7 +38,13 @@ rm -f /etc/xdg/autostart/origami-migrate.desktop
 ## System apps
 # SCELTA: virtualizzazione rimossa (libvirt virt-manager qemu-kvm).
 #         Se ti serve, riaggiungili in fondo a questa riga.
-dnf -y install flatpak-builder wlr-randr iotop sysstat lxqt-openssh-askpass lxpolkit parallel
+dnf -y install flatpak-builder wlr-randr iotop sysstat lxqt-openssh-askpass lxpolkit parallel openssh-server
+
+# sshd non parte da solo neanche se il pacchetto c'e' gia' nella base: va abilitato
+# esplicitamente. L'utente/password restano quelli di sistema (nessuna chiave o
+# accesso preconfigurato qui) - se il firewall e' attivo sulla macchina, la porta
+# 22 va aperta a parte (non gestita da questa immagine).
+systemctl enable sshd.service
 
 # User apps  (rimossi: kitty, mpv)
 # Set GTK/GNOME che rimpiazza le app COSMIC: DMS ha template matugen per gtk3/gtk4
