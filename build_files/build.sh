@@ -96,7 +96,28 @@ dnf -y install swaylock swayidle xdg-desktop-portal-gtk xdg-desktop-portal-wlr g
 # Tenuto premuto, Super continua a fare da modificatore per tutte le altre
 # combinazioni (Mod+D, Mod+E, ecc.), grazie a overloadt2.
 # keyd non e' nei repo Fedora/RPM Fusion: serve il repo Terra.
-dnf -y install --nogpgcheck --repofrompath 'terra,https://repos.fyralabs.com/terra$releasever' terra-release terra-gpg-keys
+# NB: si scrive il repo a mano (come vscode.repo/nordvpn.repo sotto) invece di
+# usare il pacchetto terra-release, che punta gpgkey a un file locale
+# (file:///etc/pki/rpm-gpg/RPM-GPG-KEY-terra$releasever). Quel file esiste nel
+# container durante la build, ma bootc-image-builder fa il suo depsolve per
+# l'ISO/qcow2 in un sandbox separato dove non c'e': "just build-iso" falliva con
+# "Could not read a file:// file for .../RPM-GPG-KEY-terra44". Con gpgkey su
+# URL https (come da subatomic-repos di Terra, pensato apposta per Fedora
+# Atomic) la chiave si puo' scaricare da qualunque contesto faccia il depsolve.
+rpm --import "https://repos.fyralabs.com/terra$(rpm -E %fedora)/key.asc"
+cat > /etc/yum.repos.d/terra.repo << 'EOF'
+[terra]
+name=Terra $releasever
+baseurl=https://repos.fyralabs.com/terra$releasever
+type=rpm
+skip_if_unavailable=True
+gpgcheck=1
+repo_gpgcheck=1
+gpgkey=https://repos.fyralabs.com/terra$releasever/key.asc
+enabled=1
+enabled_metadata=1
+metadata_expire=4h
+EOF
 dnf -y install keyd
 mkdir -p /etc/keyd
 cat > /etc/keyd/default.conf << 'EOF'
