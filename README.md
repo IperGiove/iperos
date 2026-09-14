@@ -122,10 +122,11 @@ This should queue your image for the next reboot, which you can do immediately a
 
 ## Rolling Back a Broken Build
 
-iperos rebuilds daily from upstream (niri/DMS/quickshell are installed unpinned), so a bad upstream build can land in `:latest` at any time. You don't need to pin individual packages to recover from this: every CI build is published under **three** tags (see `.github/workflows/build.yml`), and the dated ones never move or get overwritten:
+iperos rebuilds daily from upstream (niri/DMS/quickshell are installed unpinned), so a bad upstream build can land in `:latest` at any time. You don't need to pin individual packages to recover from this: every CI build is published under **four** tags (see `.github/workflows/build.yml`):
 
-- `latest` — floats to the newest build every day.
-- `latest.YYYYMMDD` / `YYYYMMDD` — frozen snapshot of that day's build, forever.
+- `latest` — floats to the newest build.
+- `latest.YYYYMMDD` / `YYYYMMDD` — that day's build. Note: if CI runs more than once on the same day (a scheduled build plus one or more pushes, which happens), this tag gets overwritten each time - it identifies "the last good build of that day", not one specific commit.
+- `sha-<short-sha>` — unique per commit, never reused, and tells you exactly which commit built it (unlike the image digest bootc shows you, which isn't a git hash at all).
 
 If something breaks after an update:
 

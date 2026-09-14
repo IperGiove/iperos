@@ -67,11 +67,18 @@ jobs:
         with:
           # This generates all the tags for your image, you can add custom tags here too!
           # Default tags are "$DEFAULT_TAG" and "$DEFAULT_TAG.$date".
+          # type=sha era limitato alle pull request: sul branch main capitano piu'
+          # push nello stesso giorno (successe il 2026-09-14, 4 build in un paio
+          # d'ore), e il tag datato viene sovrascritto a ogni build, quindi due
+          # deployment fatti in momenti diversi dello stesso giorno risultano
+          # identici a vederli solo dall'etichetta. sha-<corto> e' univoco per
+          # ogni commit, quindi resta un riferimento stabile e distinguibile
+          # anche quando "latest.YYYYMMDD" punta gia' altrove.
           tags: |
             type=raw,value=${{ env.DEFAULT_TAG }}
             type=raw,value=${{ env.DEFAULT_TAG }}.{{date 'YYYYMMDD'}}
             type=raw,value={{date 'YYYYMMDD'}}
-            type=sha,enable=${{ github.event_name == 'pull_request' }}
+            type=sha
             type=ref,event=pr
           labels: |
             io.artifacthub.package.readme-url=https://raw.githubusercontent.com/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}/${{ github.sha }}/README.md
