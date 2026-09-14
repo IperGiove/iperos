@@ -88,6 +88,19 @@ dnf -y install quickshell dms greetd dms-greeter --allowerasing
 #    come dipendenza transitiva di waybar, che qui viene rimosso.
 dnf -y install swaylock swayidle xdg-desktop-portal-gtk xdg-desktop-portal-wlr grim slurp brightnessctl playerctl
 
+# swaylock senza config ha lo sfondo grigio chiaro 0xA3A3A3 di default (verificato
+# in main.c, set_default_colors): su schermo sembra quasi bianco e l'indicatore,
+# pur attivo di default, si vede pochissimo sopra. /etc/swaylock/config e' letto
+# di default da tutte le invocazioni (SYSCONFDIR, confermato nello swaylock.spec
+# di Fedora: %meson imposta _sysconfdir=/etc) - vale sia per il bind Super+Alt+L
+# sia per swayidle in config.kdl, senza doverlo ripetere in piu' posti.
+mkdir -p /etc/swaylock
+cat > /etc/swaylock/config << 'EOF'
+color=1a1a1a
+indicator
+show-failed-attempts
+EOF
+
 # keyd: niri non supporta un bind sul solo tasto Super (serve una "release bind",
 # non ancora implementata - vedi niri-wm/niri discussion #1492). Si intercetta il
 # tasto a livello di input driver: un tap isolato di Super invia Mod+W (gia'
