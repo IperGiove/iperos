@@ -263,7 +263,11 @@ systemctl enable iperos-flatpaks.service
 # /usr e' read-only a runtime: l'updater interno va disattivato via policies.json,
 # l'aggiornamento avviene con la ricostruzione giornaliera dell'immagine.
 FF_DIR=/usr/lib/firefox-nightly
-curl -L --retry 3 --fail -o /tmp/firefox-nightly.tar.xz \
+# --retry-all-errors: senza, "--retry" riprova solo su un sottoinsieme di
+# errori "transitori" di curl, che NON include gli errori a livello protocollo
+# HTTP/2 (visto in build fallita: "HTTP/2 stream 1 was not closed cleanly:
+# PROTOCOL_ERROR") - sporadici verso il CDN di Mozilla, andati anche in retry.
+curl -L --retry 3 --retry-all-errors --fail -o /tmp/firefox-nightly.tar.xz \
   "https://download.mozilla.org/?product=firefox-nightly-latest-ssl&os=linux64&lang=en-US"
 rm -rf "$FF_DIR"
 tar -xJf /tmp/firefox-nightly.tar.xz -C /usr/lib
