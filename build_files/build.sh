@@ -88,6 +88,26 @@ dnf -y install quickshell dms greetd dms-greeter --allowerasing
 #    come dipendenza transitiva di waybar, che qui viene rimosso.
 dnf -y install swaylock swayidle xdg-desktop-portal-gtk xdg-desktop-portal-wlr grim slurp brightnessctl playerctl
 
+# keyd: niri non supporta un bind sul solo tasto Super (serve una "release bind",
+# non ancora implementata - vedi niri-wm/niri discussion #1492). Si intercetta il
+# tasto a livello di input driver: un tap isolato di Super invia Mod+W (gia'
+# legato a "toggle-overview" in config.kdl, l'Overview di niri con l'overlay di
+# ricerca di DMS sopra - il piu vicino a "Activities" di GNOME che niri abbia).
+# Tenuto premuto, Super continua a fare da modificatore per tutte le altre
+# combinazioni (Mod+D, Mod+E, ecc.), grazie a overloadt2.
+# keyd non e' nei repo Fedora/RPM Fusion: serve il repo Terra.
+dnf -y install --nogpgcheck --repofrompath 'terra,https://repos.fyralabs.com/terra$releasever' terra-release terra-gpg-keys
+dnf -y install keyd
+mkdir -p /etc/keyd
+cat > /etc/keyd/default.conf << 'EOF'
+[ids]
+*
+
+[main]
+leftmeta = overloadt2(meta, macro(M-w), 200)
+EOF
+systemctl enable keyd.service
+
 # greetd: login manager che lancia Niri tramite il greeter di Dank
 mkdir -p /etc/greetd/
 cat > /etc/greetd/config.toml << EOF
@@ -255,12 +275,87 @@ EOF
 
 # DMS: dock in basso con le app. La barra e' gia' in alto (barConfigs default
 # position 0 = Top) e dockPosition e' gia' Bottom: manca solo showDock, che di
-# default e' false. Il file e' volutamente minimale, le chiavi non presenti
-# restano ai default del codice.
+# default e' false.
+#
+# dockSmartAutoHide: "Intelligent Auto-hide" (verificato in
+# Modules/Dock/DockBody.qml) - il dock resta sempre visibile e si nasconde solo
+# quando una finestra si sovrappone alla sua area, riapparendo al passaggio del
+# mouse. E' mutualmente esclusivo con dockAutoHide (nascosto sempre): non va
+# impostato insieme.
+#
+# barConfigs: copia della "Main Bar" di default (Common/settings/SettingsSpec.js)
+# con "launcherButton" tolto da leftWidgets - e' il pulsante che apre il menu/
+# app-drawer agganciato alla barra. Al suo posto si usa l'Overview di niri
+# (Super o Mod+W, vedi keyd sopra) o Mod+D per lo spotlight di DMS.
+# ATTENZIONE: essendo una copia completa e non una chiave singola, un futuro
+# aggiornamento di DMS che aggiunga nuovi campi di default a barConfigs non si
+# propaga qui automaticamente: se la barra iniziasse a comportarsi in modo
+# strano dopo un bump di DMS, confrontare con il nuovo default upstream.
 mkdir -p /etc/skel/.config/DankMaterialShell
 cat > /etc/skel/.config/DankMaterialShell/settings.json << 'EOF'
 {
-  "showDock": true
+  "showDock": true,
+  "dockSmartAutoHide": true,
+  "barConfigs": [
+    {
+      "id": "default",
+      "name": "Main Bar",
+      "enabled": true,
+      "position": 0,
+      "screenPreferences": ["all"],
+      "showOnLastDisplay": true,
+      "leftWidgets": ["workspaceSwitcher", "focusedWindow"],
+      "centerWidgets": ["music", "clock", "weather"],
+      "rightWidgets": ["systemTray", "clipboard", "cpuUsage", "memUsage", "notificationButton", "battery", "controlCenterButton"],
+      "spacing": 4,
+      "innerPadding": 4,
+      "barLengthPadding": 0,
+      "bottomGap": 0,
+      "attachToScreenEdge": false,
+      "transparency": 1.0,
+      "widgetTransparency": 1.0,
+      "squareCorners": false,
+      "noBackground": false,
+      "maximizeWidgetIcons": false,
+      "maximizeWidgetText": false,
+      "removeWidgetPadding": false,
+      "widgetPadding": 8,
+      "batteryColorMode": "theme",
+      "gothCornersEnabled": false,
+      "gothCornerRadiusOverride": false,
+      "gothCornerRadiusValue": 12,
+      "borderEnabled": false,
+      "borderColor": "surfaceText",
+      "borderOpacity": 1.0,
+      "borderThickness": 1,
+      "widgetOutlineEnabled": false,
+      "widgetOutlineColor": "primary",
+      "widgetOutlineOpacity": 1.0,
+      "widgetOutlineThickness": 1,
+      "fontScale": 1.0,
+      "iconScale": 1.0,
+      "autoHide": false,
+      "autoHideStrict": false,
+      "autoHideDelay": 250,
+      "showOnWindowsOpen": false,
+      "openOnOverview": false,
+      "visible": true,
+      "popupGapsAuto": true,
+      "popupGapsManual": 4,
+      "maximizeDetection": true,
+      "useOverlayLayer": false,
+      "scrollEnabled": true,
+      "scrollXBehavior": "column",
+      "scrollYBehavior": "workspace",
+      "shadowIntensity": 0,
+      "shadowOpacity": 60,
+      "shadowColorMode": "default",
+      "shadowCustomColor": "#000000",
+      "clickThrough": false,
+      "hoverPopouts": false,
+      "hoverPopoutDelay": 150
+    }
+  ]
 }
 EOF
 

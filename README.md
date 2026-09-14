@@ -120,6 +120,35 @@ sudo bootc switch ghcr.io/<username>/<image_name>
 ```
 This should queue your image for the next reboot, which you can do immediately after the command finishes. You have officially set up your custom image! See the following section for an explanation of the important parts of the template for customization.
 
+## Rolling Back a Broken Build
+
+iperos rebuilds daily from upstream (niri/DMS/quickshell are installed unpinned), so a bad upstream build can land in `:latest` at any time. You don't need to pin individual packages to recover from this: every CI build is published under **three** tags (see `.github/workflows/build.yml`), and the dated ones never move or get overwritten:
+
+- `latest` — floats to the newest build every day.
+- `latest.YYYYMMDD` / `YYYYMMDD` — frozen snapshot of that day's build, forever.
+
+If something breaks after an update:
+
+```bash
+just rollback                       # instant, no network: boots the deployment before this one
+just switch-image latest.20260910   # deliberately switch to a specific known-good day
+just status                         # see what's currently booted / available to roll back to
+```
+
+Once you've fixed the underlying issue (or upstream has), `just switch-image latest` puts you back on the rolling train.
+
+### A permanent third GRUB entry
+
+bootc only ever keeps 2 deployments on disk (current + 1 rollback) — anything older than that gets garbage-collected on the next upgrade, `just rollback` included. If you want a "known good" build to survive indefinitely as a third boot option instead of getting pruned two upgrades later, pin it with `ostree admin pin` (still available underneath bootc):
+
+```bash
+just pin-stable      # pins whatever is currently booted - do this once you've verified a build is solid
+just status          # find its index later
+just unpin <index>    # release it (e.g. before pinning a newer "stable")
+```
+
+A pinned deployment shows up as a normal extra entry in the GRUB menu and is never auto-removed, no matter how many `bootc upgrade`/`bootc rollback` cycles happen afterwards. It does take up extra disk space for as long as it stays pinned (a whole extra deployment's worth of unique layers), so move the pin forward once in a while instead of leaving it forever.
+
 # Repository Contents
 
 ## Containerfile

@@ -1,6 +1,7 @@
 export image_name := env("IMAGE_NAME", "iperos") # output image name, usually same as repo name, change as needed
 export default_tag := env("DEFAULT_TAG", "latest")
 export bib_image := env("BIB_IMAGE", "quay.io/centos-bootc/bootc-image-builder:latest")
+export image_registry := env("IMAGE_REGISTRY", "ghcr.io/ipergiove") # dove build.yml pubblica le immagini
 
 alias build-vm := build-qcow2
 alias rebuild-vm := rebuild-qcow2
@@ -381,6 +382,45 @@ spawn-vm rebuild="0" type="qcow2" ram="6G":
       --vsock=false --pass-ssh-key=false \
       -i ./output/**/*.{{ type }}
 
+
+# Passa il sistema in esecuzione a un tag pubblicato specifico (es. una build
+# datata nota-buona). build.yml tagga ogni build sia "latest" sia con la data
+# ("latest.YYYYMMDD" e "YYYYMMDD"), e questi tag restano su ghcr.io per sempre:
+# quindi si puo' tornare a una build precisa senza pinnare un solo pacchetto dnf.
+#   just switch-image latest.20260910
+[group('Bootc')]
+switch-image tag=default_tag:
+    just sudoif bootc switch {{ image_registry }}/{{ image_name }}:{{ tag }}
+
+# Mostra il deployment attivo e quelli disponibili per il rollback.
+[group('Bootc')]
+status:
+    bootc status
+
+# Torna istantaneamente al deployment precedente (nessuna rete richiesta).
+# Va indietro di UN solo passo: per una build piu' vecchia specifica usa
+# "just switch-image <tag>" con uno dei tag datati sopra.
+[group('Bootc')]
+rollback:
+    just sudoif bootc rollback
+
+# Pinna il deployment attualmente avviato: sopravvive alle prossime "bootc
+# upgrade"/"bootc rollback" invece di essere scartato dopo 2 aggiornamenti
+# (bootc di suo tiene solo il deployment corrente + 1 precedente). Diventa una
+# terza voce permanente nel menu di GRUB. Usalo su una build che hai verificato
+# essere solida, cosi' hai sempre un fallback noto-buono anche se dimentichi di
+# fare rollback in tempo. Sposta il pin quando promuovi una build piu' recente
+# a "stabile": prima "just unpin <indice-vecchio>" (vedi "just status"), poi
+# "just pin-stable" sulla nuova.
+[group('Bootc')]
+pin-stable:
+    just sudoif ostree admin pin booted
+
+# Rimuove il pin da un deployment (indice da "just status"), rendendolo di
+# nuovo eliminabile dal garbage collector come tutti gli altri.
+[group('Bootc')]
+unpin index:
+    just sudoif ostree admin pin --unpin {{ index }}
 
 # Runs shell check on all Bash scripts
 lint:
