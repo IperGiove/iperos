@@ -113,6 +113,14 @@ gpgcheck=1
 gpgkey=https://dl.cloudsmith.io/public/task/task/gpg.046FD1186CA342F0.key
 enabled=1
 EOF
+# task's RPM ships a zsh completion under /usr/local/share/zsh/site-functions/,
+# which on this base is a dangling symlink to /var/usrlocal (nothing has
+# created that directory yet at this point in the build). rpm's cpio fails
+# to mkdir through a dangling symlink ("cpio: mkdir failed - File exists"
+# followed by "No data available"), so the target has to be created by
+# writing straight to /var/usrlocal instead of through the /usr/local
+# symlink, which just fails the same way "mkdir -p /usr/local/..." would.
+mkdir -p /var/usrlocal/share/zsh/site-functions
 dnf -y install task
 
 # Nautilus "open any terminal" -> points to gnome-terminal (used to be kitty)
