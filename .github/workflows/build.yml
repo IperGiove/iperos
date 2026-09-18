@@ -14,9 +14,9 @@ on:
   workflow_dispatch:
 
 env:
-  IMAGE_DESC: "Immagine bootc basata su Origami Linux con Niri + DankMaterialShell"
-  IMAGE_KEYWORDS: "bootc,ublue,universal-blue,niri,dankmaterialshell,origami"
-  IMAGE_LOGO_URL: "https://avatars.githubusercontent.com/u/120078124?s=200&v=4"  # TODO: sostituire con il proprio logo per https://artifacthub.io/
+  IMAGE_DESC: "bootc image based on ublue-os base-nvidia with Niri + DankMaterialShell"
+  IMAGE_KEYWORDS: "bootc,ublue,universal-blue,niri,dankmaterialshell"
+  IMAGE_LOGO_URL: "https://avatars.githubusercontent.com/u/120078124?s=200&v=4"  # TODO: replace with your own logo for https://artifacthub.io/
   IMAGE_NAME: "${{ github.event.repository.name }}"  # output image name, usually same as repo name
   IMAGE_REGISTRY: "ghcr.io/${{ github.repository_owner }}"  # do not edit
   DEFAULT_TAG: "latest"
@@ -67,13 +67,14 @@ jobs:
         with:
           # This generates all the tags for your image, you can add custom tags here too!
           # Default tags are "$DEFAULT_TAG" and "$DEFAULT_TAG.$date".
-          # type=sha era limitato alle pull request: sul branch main capitano piu'
-          # push nello stesso giorno (successe il 2026-09-14, 4 build in un paio
-          # d'ore), e il tag datato viene sovrascritto a ogni build, quindi due
-          # deployment fatti in momenti diversi dello stesso giorno risultano
-          # identici a vederli solo dall'etichetta. sha-<corto> e' univoco per
-          # ogni commit, quindi resta un riferimento stabile e distinguibile
-          # anche quando "latest.YYYYMMDD" punta gia' altrove.
+          # type=sha used to be limited to pull requests: on the main branch
+          # multiple pushes can happen on the same day (it happened on
+          # 2026-09-14, 4 builds in a couple of hours), and the dated tag gets
+          # overwritten on every build, so two deployments made at different
+          # times of the same day look identical if you only go by the label.
+          # sha-<short> is unique per commit, so it stays a stable,
+          # distinguishable reference even when "latest.YYYYMMDD" already
+          # points somewhere else.
           tags: |
             type=raw,value=${{ env.DEFAULT_TAG }}
             type=raw,value=${{ env.DEFAULT_TAG }}.{{date 'YYYYMMDD'}}

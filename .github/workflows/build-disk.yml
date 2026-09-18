@@ -86,21 +86,21 @@ jobs:
           image: ${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.DEFAULT_TAG }}
           chown: ${{ env.USER_UID }}:${{ env.USER_GID }}
           types: ${{ matrix.disk-type }}
-          # ublue-os/base-nvidia non fornisce un default in /usr/lib/bootc/install
-          # (rootfs.toml assente), quindi bib fallisce con "missing required info:
-          # DefaultRootFs" senza --rootfs esplicito. btrfs per coerenza con
-          # _build-bib nel Justfile (build locale).
+          # ublue-os/base-nvidia doesn't ship a default in /usr/lib/bootc/install
+          # (rootfs.toml is missing), so bib fails with "missing required info:
+          # DefaultRootFs" without an explicit --rootfs. btrfs for consistency
+          # with _build-bib in the Justfile (local build).
           additional-args: --use-librepo=True --rootfs=btrfs
 
       - name: Upload disk images and Checksum to Job Artifacts
         if: inputs.upload-to-s3 != true && github.event_name != 'pull_request'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          # Senza "name" entrambi i job della matrice (qcow2 e anaconda-iso)
-          # caricano con il nome predefinito "artifact" e, con overwrite: true,
-          # il secondo che finisce cancella il primo: ne sopravvive uno solo.
-          # DISK_TYPE era gia' calcolato nello step "Prepare environment" ma non
-          # veniva usato da nessuna parte.
+          # Without "name" both matrix jobs (qcow2 and anaconda-iso) upload
+          # under the default name "artifact" and, with overwrite: true,
+          # whichever finishes second wipes out the first: only one survives.
+          # DISK_TYPE was already computed in the "Prepare environment" step
+          # but wasn't being used anywhere.
           name: ${{ env.DISK_TYPE }}
           path: ${{ steps.build.outputs.output-directory }}
           if-no-files-found: error

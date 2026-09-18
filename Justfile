@@ -1,7 +1,7 @@
 export image_name := env("IMAGE_NAME", "iperos") # output image name, usually same as repo name, change as needed
 export default_tag := env("DEFAULT_TAG", "latest")
 export bib_image := env("BIB_IMAGE", "quay.io/centos-bootc/bootc-image-builder:latest")
-export image_registry := env("IMAGE_REGISTRY", "ghcr.io/ipergiove") # dove build.yml pubblica le immagini
+export image_registry := env("IMAGE_REGISTRY", "ghcr.io/ipergiove") # where build.yml publishes the images
 
 alias build-vm := build-qcow2
 alias rebuild-vm := rebuild-qcow2
@@ -60,9 +60,9 @@ sudoif command *args:
         if [[ "${UID}" -eq 0 ]]; then
             "$@"
         elif [[ "$(command -v sudo)" && -n "${SSH_ASKPASS:-}" ]] && [[ -n "${DISPLAY:-}" || -n "${WAYLAND_DISPLAY:-}" ]]; then
-            # sudo --askpass legge SUDO_ASKPASS, non SSH_ASKPASS: senza questa riga
-            # fallisce con "no askpass program specified" su ogni desktop che imposta
-            # solo SSH_ASKPASS (GNOME/Fedora Workstation lo fa di default).
+            # sudo --askpass reads SUDO_ASKPASS, not SSH_ASKPASS: without this line
+            # it fails with "no askpass program specified" on every desktop that only
+            # sets SSH_ASKPASS (GNOME/Fedora Workstation does this by default).
             SUDO_ASKPASS="${SUDO_ASKPASS:-$SSH_ASKPASS}" /usr/bin/sudo --askpass "$@" || exit 1
         elif [[ "$(command -v sudo)" ]]; then
             /usr/bin/sudo "$@" || exit 1
@@ -143,10 +143,10 @@ _rootful_load_image $target_image=image_name $tag=default_tag:
         # If the image is found, load it into rootful podman
         ID=$(just sudoif podman images --filter reference="${target_image}:${tag}" --format "'{{ '{{.ID}}' }}'")
         if [[ "$ID" != "$USER_IMG_ID" ]]; then
-            # "podman image scp" scrive un tar temporaneo di diversi GB e poi lo
-            # ricarica. Su immagini grandi (qui ~10 GB) va in crash con SIGABRT
-            # dentro il progress bar (mpb), lasciando il tar sul disco.
-            # save|load in pipe fa lo stesso lavoro senza file intermedi.
+            # "podman image scp" writes a several-GB temporary tar and then
+            # reloads it. On large images (here ~10 GB) it crashes with SIGABRT
+            # inside the progress bar (mpb), leaving the tar on disk.
+            # save|load piped together does the same job without intermediate files.
             podman save "${target_image}:${tag}" | just sudoif podman load
         fi
     else
@@ -207,23 +207,23 @@ _rebuild-bib $target_image $tag $type $config: (build target_image tag) && (_bui
 build-qcow2 $target_image=("localhost/" + image_name) $tag=default_tag: && (_build-bib target_image tag "qcow2" "disk_config/disk.toml")
 
 # Build a QCOW2 for VM testing, WITH a login user.
-# disk.toml non definisce nessun utente e root e' bloccato: una VM costruita con
-# "build-qcow2" si ferma a "login:" senza credenziali possibili. Questa ricetta usa
-# disk_config/disk-test.toml, che e' in .gitignore perche' contiene una password in
-# chiaro e non deve finire nell'immagine reale.
+# disk.toml defines no user and root is locked: a VM built with "build-qcow2"
+# stops at "login:" with no usable credentials. This recipe uses
+# disk_config/disk-test.toml, which is in .gitignore because it contains a
+# plaintext password and must not end up in the real image.
 [group('Build Virtal Machine Image')]
 build-qcow2-test $target_image=("localhost/" + image_name) $tag=default_tag: && (_build-bib target_image tag "qcow2" "disk_config/disk-test.toml")
     #!/usr/bin/bash
     if [[ ! -f disk_config/disk-test.toml ]]; then
-        echo "Manca disk_config/disk-test.toml. Crealo cosi':" >&2
+        echo "Missing disk_config/disk-test.toml. Create it like this:" >&2
         echo "" >&2
         echo '  [[customizations.filesystem]]' >&2
         echo '  mountpoint = "/"' >&2
         echo '  minsize = "20 GiB"' >&2
         echo "" >&2
         echo '  [[customizations.user]]' >&2
-        echo '  name = "tuonome"' >&2
-        echo '  password = "unapassword"' >&2
+        echo '  name = "yourname"' >&2
+        echo '  password = "apassword"' >&2
         echo '  groups = ["wheel"]' >&2
         exit 1
     fi
@@ -233,12 +233,12 @@ build-qcow2-test $target_image=("localhost/" + image_name) $tag=default_tag: && 
 build-raw $target_image=("localhost/" + image_name) $tag=default_tag: && (_build-bib target_image tag "raw" "disk_config/disk.toml")
 
 # Build a RAW image for testing on real hardware from an external USB disk.
-# Stesso disk-test.toml della VM: include un utente per il login.
+# Same disk-test.toml as the VM: includes a user for login.
 [group('Build Virtal Machine Image')]
 build-raw-test $target_image=("localhost/" + image_name) $tag=default_tag: && (_build-bib target_image tag "raw" "disk_config/disk-test.toml")
     #!/usr/bin/bash
     if [[ ! -f disk_config/disk-test.toml ]]; then
-        echo "Manca disk_config/disk-test.toml (vedi build-qcow2-test)." >&2
+        echo "Missing disk_config/disk-test.toml (see build-qcow2-test)." >&2
         exit 1
     fi
 
@@ -269,14 +269,14 @@ _run-vm $target_image $tag $type $config:
         image_file="output/bootiso/install.iso"
     fi
 
-    # Se l'immagine manca ci si ferma invece di ricostruirla di nascosto: la
-    # ricostruzione automatica usava disk.toml, che NON crea nessun utente, e
-    # produceva dopo un'ora una VM in cui era impossibile fare login.
+    # If the image is missing, stop instead of silently rebuilding it: the
+    # automatic rebuild used disk.toml, which creates NO user, and an hour
+    # later produced a VM where logging in was impossible.
     if [[ ! -f "${image_file}" ]]; then
-        echo "Immagine non trovata: ${image_file}" >&2
+        echo "Image not found: ${image_file}" >&2
         echo "" >&2
-        echo "  per una VM di TEST (con utente admin/admin):  just build-${type}-test" >&2
-        echo "  per l'immagine REALE (senza utente):          just build-${type}" >&2
+        echo "  for a TEST VM (with admin/admin user):  just build-${type}-test" >&2
+        echo "  for the REAL image (no user):           just build-${type}" >&2
         exit 1
     fi
 
@@ -290,8 +290,8 @@ _run-vm $target_image $tag $type $config:
 
     # Set up the arguments for running the VM
     run_args=()
-    # -it: senza stdin collegato la console seriale e' di sola lettura e non si
-    # riesce a fare login ne' a diagnosticare nulla dal terminale.
+    # -it: without stdin attached the serial console is read-only and it's
+    # not possible to log in or diagnose anything from the terminal.
     run_args+=(--rm --privileged -it)
     run_args+=(--pull=newer)
     run_args+=(--publish "127.0.0.1:${port}:8006")
@@ -299,10 +299,10 @@ _run-vm $target_image $tag $type $config:
     run_args+=(--env "RAM_SIZE=8G")
     run_args+=(--env "DISK_SIZE=64G")
     run_args+=(--env "TPM=Y")
-    # GPU=Y fa passare a qemux/qemu l'opzione virtio-vga-gl,host3d_blob_limit=...,
-    # proprieta' che QEMU 11.1 (quello incluso nell'immagine) non ha piu': la VM
-    # muore con "Property 'virtio-vga-gl.host3d_blob_limit' not found".
-    # Default disattivato; per riattivarlo quando l'upstream avra' corretto:
+    # GPU=Y passes qemux/qemu the virtio-vga-gl,host3d_blob_limit=... option,
+    # a property that QEMU 11.1 (the one bundled in the image) no longer has:
+    # the VM dies with "Property 'virtio-vga-gl.host3d_blob_limit' not found".
+    # Disabled by default; to re-enable it once upstream fixes it:
     #   VM_GPU=Y just run-vm-qcow2
     run_args+=(--env "GPU=${VM_GPU:-N}")
     run_args+=(--device=/dev/kvm)
@@ -326,11 +326,12 @@ run-vm-raw $target_image=("localhost/" + image_name) $tag=default_tag: && (_run-
 run-vm-iso $target_image=("localhost/" + image_name) $tag=default_tag: && (_run-vm target_image tag "iso" "disk_config/iso.toml")
 
 # Run the VM with the HOST's qemu instead of the qemux container.
-# Serve per avere accelerazione 3D vera (virtio-vga-gl + virgl). Senza di essa
-# niri non trova un allocatore GBM ("no allocator available for device"), non
-# espone nessun output, e il greeter resta su uno schermo nero.
-# Il container qemux non puo' farlo: con GPU=Y passa a QEMU l'opzione
-# virtio-vga-gl,host3d_blob_limit=... che le QEMU recenti non hanno piu'.
+# Needed to get real 3D acceleration (virtio-vga-gl + virgl). Without it,
+# niri can't find a GBM allocator ("no allocator available for device"),
+# exposes no output, and the greeter stays on a black screen.
+# The qemux container can't do this: with GPU=Y it passes QEMU the
+# virtio-vga-gl,host3d_blob_limit=... option that recent QEMU builds no
+# longer have.
 [group('Run Virtal Machine')]
 run-vm-native type="qcow2" ram="8G" cpus="4":
     #!/usr/bin/env bash
@@ -338,18 +339,18 @@ run-vm-native type="qcow2" ram="8G" cpus="4":
 
     image_file="output/{{ type }}/disk.{{ type }}"
     if [[ ! -f "$image_file" ]]; then
-        echo "Manca $image_file" >&2
-        echo "  costruiscilo con:  just build-{{ type }}-test" >&2
+        echo "Missing $image_file" >&2
+        echo "  build it with:  just build-{{ type }}-test" >&2
         exit 1
     fi
 
     OVMF_CODE=/usr/share/edk2/ovmf/OVMF_CODE.fd
     OVMF_VARS=/usr/share/edk2/ovmf/OVMF_VARS.fd
     for f in "$OVMF_CODE" "$OVMF_VARS"; do
-        [[ -f "$f" ]] || { echo "Manca $f: dnf install edk2-ovmf" >&2; exit 1; }
+        [[ -f "$f" ]] || { echo "Missing $f: dnf install edk2-ovmf" >&2; exit 1; }
     done
 
-    # OVMF_VARS deve essere scrivibile: se ne usa una copia usa e getta
+    # OVMF_VARS needs to be writable: a disposable copy is used instead
     VARS=$(mktemp -t ovmf-vars-XXXXXXXX.fd)
     cp "$OVMF_VARS" "$VARS"
     trap 'rm -f "$VARS"' EXIT
@@ -383,41 +384,41 @@ spawn-vm rebuild="0" type="qcow2" ram="6G":
       -i ./output/**/*.{{ type }}
 
 
-# Passa il sistema in esecuzione a un tag pubblicato specifico (es. una build
-# datata nota-buona). build.yml tagga ogni build sia "latest" sia con la data
-# ("latest.YYYYMMDD" e "YYYYMMDD"), e questi tag restano su ghcr.io per sempre:
-# quindi si puo' tornare a una build precisa senza pinnare un solo pacchetto dnf.
+# Switches the running system to a specific published tag (e.g. a known-good
+# dated build). build.yml tags every build both "latest" and with the date
+# ("latest.YYYYMMDD" and "YYYYMMDD"), and these tags stay on ghcr.io forever:
+# so you can go back to a precise build without pinning a single dnf package.
 #   just switch-image latest.20260910
 [group('Bootc')]
 switch-image tag=default_tag:
     just sudoif bootc switch {{ image_registry }}/{{ image_name }}:{{ tag }}
 
-# Mostra il deployment attivo e quelli disponibili per il rollback.
+# Shows the active deployment and the ones available for rollback.
 [group('Bootc')]
 status:
     bootc status
 
-# Torna istantaneamente al deployment precedente (nessuna rete richiesta).
-# Va indietro di UN solo passo: per una build piu' vecchia specifica usa
-# "just switch-image <tag>" con uno dei tag datati sopra.
+# Instantly goes back to the previous deployment (no network needed).
+# Goes back exactly ONE step: for a specific older build use
+# "just switch-image <tag>" with one of the dated tags above.
 [group('Bootc')]
 rollback:
     just sudoif bootc rollback
 
-# Pinna il deployment attualmente avviato: sopravvive alle prossime "bootc
-# upgrade"/"bootc rollback" invece di essere scartato dopo 2 aggiornamenti
-# (bootc di suo tiene solo il deployment corrente + 1 precedente). Diventa una
-# terza voce permanente nel menu di GRUB. Usalo su una build che hai verificato
-# essere solida, cosi' hai sempre un fallback noto-buono anche se dimentichi di
-# fare rollback in tempo. Sposta il pin quando promuovi una build piu' recente
-# a "stabile": prima "just unpin <indice-vecchio>" (vedi "just status"), poi
-# "just pin-stable" sulla nuova.
+# Pins the currently booted deployment: it survives the next "bootc
+# upgrade"/"bootc rollback" cycles instead of being garbage-collected after 2
+# updates (bootc on its own only keeps the current deployment + 1 previous
+# one). It becomes a permanent third entry in the GRUB menu. Use it on a
+# build you've verified to be solid, so you always have a known-good
+# fallback even if you forget to roll back in time. Move the pin when you
+# promote a newer build to "stable": first "just unpin <old-index>" (see
+# "just status"), then "just pin-stable" on the new one.
 [group('Bootc')]
 pin-stable:
     just sudoif ostree admin pin booted
 
-# Rimuove il pin da un deployment (indice da "just status"), rendendolo di
-# nuovo eliminabile dal garbage collector come tutti gli altri.
+# Removes the pin from a deployment (index from "just status"), making it
+# eligible for garbage collection again like every other one.
 [group('Bootc')]
 unpin index:
     just sudoif ostree admin pin --unpin {{ index }}

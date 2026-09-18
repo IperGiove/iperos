@@ -5,68 +5,123 @@ set -ouex pipefail
 ## DNF5 Speedup
 sed -i '/^\[main\]/a max_parallel_downloads=10' /etc/dnf/dnf.conf
 
-# --- Si spoglia la base PRIMA di installare. -------------------------------
-# Ordine non casuale: "dnf install" su un pacchetto gia' presente nella base
-# non lo rimarca come richiesto dall'utente, quindi una "dnf remove" successiva
-# se lo porta via come dipendenza inutilizzata. Con waybar succedeva proprio
-# questo a playerctl, lasciando morti i bind XF86Audio* di config.kdl.
-# Rimuove COSMIC per intero (usiamo Niri + DMS) e waybar.
-# La base Origami e' la variante "COSMIC Atomic": elencare a mano i pacchetti ne
-# lasciava indietro 31 per ~735 MB, inclusi xdg-desktop-portal-cosmic e
-# cutecosmic-qt6 che non hanno il prefisso "cosmic-". Si filtra per pattern.
-# NB: fedora-release-cosmic-atomic NON va toccato, fornisce system-release.
-# Si rimuovono anche:
-#   nvtop            monitor GPU da terminale, non richiesto
-#   firefox          la stabile della base: il browser e' Firefox Nightly (sotto)
-#   nvidia-settings  pannello X11, inutile su Wayland (non tocca il driver:
-#                    e' un pacchetto a se' da 1.6 MiB, nessuno dipende da lui)
+# --- Strip the base BEFORE installing anything. -----------------------------
+# The order is not arbitrary: "dnf install" on a package already present in
+# the base does not mark it as user-requested, so a later "dnf remove" would
+# take it away as an unused dependency. This happened with waybar taking
+# playerctl down with it, leaving the XF86Audio* binds in config.kdl dead.
+# Removes COSMIC entirely (we use Niri + DMS) and waybar.
+# The Origami base is the "COSMIC Atomic" variant: listing the packages by
+# hand left 31 behind for ~735 MB, including xdg-desktop-portal-cosmic and
+# cutecosmic-qt6, which don't have the "cosmic-" prefix. We filter by pattern
+# instead.
+# NB: fedora-release-cosmic-atomic must NOT be touched, it provides
+# system-release.
+# Also removed:
+#   nvtop            terminal GPU monitor, not needed
+#   firefox           the base's stable build: the browser here is Firefox
+#                     Nightly (see below)
+#   nvidia-settings  X11 panel, useless on Wayland (doesn't touch the driver:
+#                    it's a standalone 1.6 MiB package, nothing depends on it)
 mapfile -t TO_REMOVE < <(rpm -qa --qf '%{NAME}\n' \
     | grep -E '^(cosmic-|cutecosmic|xdg-desktop-portal-cosmic|waybar|nvtop|firefox|nvidia-settings)' \
     | sort)
 if [ ${#TO_REMOVE[@]} -gt 0 ]; then
-    echo "Rimozione COSMIC: ${#TO_REMOVE[@]} pacchetti"
+    echo "Removing COSMIC: ${#TO_REMOVE[@]} packages"
     dnf -y remove "${TO_REMOVE[@]}"
 fi
 
-# Origami e' deprecato e inietta in autostart un "RakuOS Migration Assistant"
-# (non appartiene ad alcun pacchetto) che ogni giorno propone all'utente un
-# "rpm-ostree rebase" verso quay.io/rakuos/rakuos-cosmic-nvidia, cioe' via da
-# iperos. Il sed su ID= nel Containerfile non basta: la guardia dello script
-# controlla anche NAME e PRETTY_NAME.
+# Origami is deprecated and injects a "RakuOS Migration Assistant" into
+# autostart (it doesn't belong to any package) that every day nags the user
+# to do an "rpm-ostree rebase" to quay.io/rakuos/rakuos-cosmic-nvidia, i.e.
+# away from iperos. The sed on ID= in the Containerfile isn't enough: the
+# script's guard also checks NAME and PRETTY_NAME.
 rm -f /etc/xdg/autostart/origami-migrate.desktop
 
 ## System apps
-# SCELTA: virtualizzazione rimossa (libvirt virt-manager qemu-kvm).
-#         Se ti serve, riaggiungili in fondo a questa riga.
-dnf -y install flatpak-builder wlr-randr iotop sysstat lxqt-openssh-askpass lxpolkit parallel openssh-server
+# CHOICE: virtualization removed (libvirt virt-manager qemu-kvm).
+#         If you need it, add it back at the end of this line.
+# btrfs-assistant: GUI for snapshots/subvolumes. Relevant here because the
+# VM/ISO/raw images are built with --rootfs=btrfs (see Justfile's
+# _build-bib and build-disk.yml), so the root filesystem on those images
+# actually is btrfs.
+dnf -y install flatpak-builder wlr-randr iotop sysstat lxqt-openssh-askpass lxpolkit parallel openssh-server btrfs-assistant
 
-# sshd non parte da solo neanche se il pacchetto c'e' gia' nella base: va abilitato
-# esplicitamente. L'utente/password restano quelli di sistema (nessuna chiave o
-# accesso preconfigurato qui) - se il firewall e' attivo sulla macchina, la porta
-# 22 va aperta a parte (non gestita da questa immagine).
+# sshd doesn't start on its own even though the package is already in the
+# base: it has to be enabled explicitly. The user/password stay whatever the
+# system has (no key or preconfigured access here) - if the firewall is
+# active on the machine, port 22 has to be opened separately (not handled by
+# this image).
 systemctl enable sshd.service
 
-# User apps  (rimossi: kitty, mpv)
-# Set GTK/GNOME che rimpiazza le app COSMIC: DMS ha template matugen per gtk3/gtk4
-# e qt5ct/qt6ct, ma nessuno per libcosmic, quindi le app COSMIC resterebbero fuori tema.
+# Nvidia + suspend: the machine has no S3 (only "s2idle" in
+# /sys/power/mem_sleep, checked by hand), so there's no way to get the
+# near-zero-power suspend of classic S3. Without these parameters the GPU
+# doesn't cooperate with s2idle: it stays powered during suspend instead of
+# turning off the VRAM, which is the typical cause of battery drain and fans
+# running with the lid closed.
+#   NVreg_EnableS0ixPowerManagement=1  if the VRAM in use is below the
+#     threshold (default 256 MB, NVreg_S0ixPowerManagementVideoMemoryThreshold),
+#     copies it to system RAM and powers off video memory during s2idle.
+#   NVreg_UseKernelSuspendNotifiers=1  on the open modules (the ones this
+#     image uses, see Containerfile) this is needed to automatically trigger
+#     saving/restoring VRAM across the suspend/resume cycle; without it,
+#     EnableS0ixPowerManagement alone isn't enough on the open modules.
+# Not guaranteed to be clean on every GPU/driver version (there are reports
+# of GSP firmware panics with aggressive power management + s2idle): if
+# resume gets worse, roll back with "just rollback".
+mkdir -p /etc/modprobe.d
+cat > /etc/modprobe.d/nvidia-power.conf << 'EOF'
+options nvidia NVreg_EnableS0ixPowerManagement=1 NVreg_UseKernelSuspendNotifiers=1
+EOF
+
+# User apps  (removed: kitty, mpv)
+# GTK/GNOME set that replaces the COSMIC apps: DMS has matugen templates for
+# gtk3/gtk4 and qt5ct/qt6ct, but none for libcosmic, so COSMIC apps would be
+# left out of theme.
 #   gnome-text-editor <- cosmic-edit      papers          <- cosmic-reader
 #   gnome-calculator  <- cosmic-ext-calculator            celluloid <- cosmic-player
 #   snapshot          <- cosmic-ext-camera
-#   loupe / file-roller: prima mancavano del tutto
+#   loupe / file-roller: were missing entirely before
 dnf -y install nautilus gnome-terminal gnome-system-monitor \
   gnome-text-editor papers gnome-calculator loupe file-roller celluloid snapshot
 
-# SCELTA: ffmpeg + codec RPM Fusion mantenuti (per riproduzione/decodifica video),
-#         ma SENZA OBS. Se non ti servono i codec, elimina queste 2 righe.
+# CHOICE: ffmpeg + RPM Fusion codecs kept (for video playback/decoding), but
+#         WITHOUT OBS. If you don't need the codecs, remove these 2 lines.
+# "dnf swap" instead of "install --allowerasing": the base already has
+# ffmpeg-free, and swap explicitly declares "replace this with that" instead
+# of leaving dnf free to erase whatever it considers conflicting.
 dnf -y install https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$(rpm -E %fedora).noarch.rpm
-dnf -y install ffmpeg x264-libs --allowerasing
+dnf -y swap ffmpeg-free ffmpeg --allowerasing
+dnf -y install x264-libs
 
-# Nautilus "open any terminal" -> punta a gnome-terminal (prima era kitty)
+# Go and uv (Astral's Python package/project manager): both in the Fedora
+# repos with up-to-date versions, so they stay current on their own with the
+# daily rebuild instead of having to be downloaded by hand like Firefox
+# Nightly below.
+dnf -y install golang uv
+
+# task (go-task/Taskfile.dev): not in the Fedora repos, official Cloudsmith
+# repo. Only the main arch repo is needed to install the binary (the noarch
+# and SRPMS repos from the upstream instructions are not needed here).
+rpm --import "https://dl.cloudsmith.io/public/task/task/gpg.046FD1186CA342F0.key"
+cat > /etc/yum.repos.d/task.repo << EOF
+[task-task]
+name=task-task
+baseurl=https://dl.cloudsmith.io/public/task/task/rpm/fedora/$(rpm -E %fedora)/\$basearch
+gpgcheck=1
+gpgkey=https://dl.cloudsmith.io/public/task/task/gpg.046FD1186CA342F0.key
+enabled=1
+EOF
+dnf -y install task
+
+# Nautilus "open any terminal" -> points to gnome-terminal (used to be kitty)
 curl -Lo /etc/yum.repos.d/nautilus-open-any-terminal.repo \
   https://copr.fedorainfracloud.org/coprs/monkeygold/nautilus-open-any-terminal/repo/fedora-$(rpm -E %fedora)/monkeygold-nautilus-open-any-terminal-fedora-$(rpm -E %fedora).repo
 dnf install -y nautilus-open-any-terminal
-# NB: "gsettings set" in fase di build scriverebbe nel dconf di root dentro il
-#     container, non nei default di sistema. Si usa un override di schema.
+# NB: "gsettings set" at build time would write to root's dconf inside the
+#     container, not to the system defaults. A schema override is used
+#     instead.
 cat > /usr/share/glib-2.0/schemas/zz-iperos-open-any-terminal.gschema.override << 'EOF'
 [com.github.stunkymonkey.nautilus-open-any-terminal]
 terminal='gnome-terminal'
@@ -74,10 +129,11 @@ EOF
 glib-compile-schemas /usr/share/glib-2.0/schemas
 
 # Install Niri
-# niri "Recommends: waybar,alacritty", che rientrerebbero dopo la rimozione
-# sopra (si usa gnome-terminal e la barra di DMS). Le altre weak deps servono:
-# gnome-keyring (portal Secret), wireplumber (wpctl), xdg-desktop-portal-gnome
-# (e' il backend che niri-portals.conf usa per lo screencast).
+# niri "Recommends: waybar,alacritty", which would come back after the
+# removal above (gnome-terminal and DMS's bar are used instead). The other
+# weak deps are needed: gnome-keyring (Secret portal), wireplumber (wpctl),
+# xdg-desktop-portal-gnome (the backend niri-portals.conf uses for
+# screencast).
 dnf -y install niri --exclude=waybar,alacritty
 
 # Install Dank Linux shell (DMS)
@@ -85,21 +141,26 @@ curl --output-dir "/etc/yum.repos.d/" \
   --remote-name "https://copr.fedorainfracloud.org/coprs/avengemedia/dms/repo/fedora-$(rpm -E %fedora)/avengemedia-dms-fedora-$(rpm -E %fedora).repo"
 dnf -y install quickshell dms greetd dms-greeter --allowerasing
 
-# Desktop extras Wayland:
-#  - swaylock/swayidle           : blocco schermo (bind Super+Alt+L) e blocco automatico su inattivita'/sospensione
-#  - xdg-desktop-portal-gtk/-wlr : screen sharing (Discord/Zoom/Meet), file picker e screenshot dalle app
-#  - grim/slurp                  : screenshot e selezione area da riga di comando
-#  - brightnessctl / playerctl    : richiesti dai bind XF86MonBrightness* e XF86Audio*
-#    di config.kdl. Vanno installati esplicitamente: su alcune basi arrivavano solo
-#    come dipendenza transitiva di waybar, che qui viene rimosso.
+# Wayland desktop extras:
+#  - swaylock/swayidle           : screen lock (Super+Alt+L bind) and automatic
+#                                   lock on idle/suspend
+#  - xdg-desktop-portal-gtk/-wlr : screen sharing (Discord/Zoom/Meet), file
+#                                   picker and screenshots from apps
+#  - grim/slurp                  : screenshot and area selection from the
+#                                   command line
+#  - brightnessctl / playerctl    : required by the XF86MonBrightness* and
+#    XF86Audio* binds in config.kdl. Need to be installed explicitly: on some
+#    bases they only arrived as a transitive dependency of waybar, which is
+#    removed here.
 dnf -y install swaylock swayidle xdg-desktop-portal-gtk xdg-desktop-portal-wlr grim slurp brightnessctl playerctl
 
-# swaylock senza config ha lo sfondo grigio chiaro 0xA3A3A3 di default (verificato
-# in main.c, set_default_colors): su schermo sembra quasi bianco e l'indicatore,
-# pur attivo di default, si vede pochissimo sopra. /etc/swaylock/config e' letto
-# di default da tutte le invocazioni (SYSCONFDIR, confermato nello swaylock.spec
-# di Fedora: %meson imposta _sysconfdir=/etc) - vale sia per il bind Super+Alt+L
-# sia per swayidle in config.kdl, senza doverlo ripetere in piu' posti.
+# swaylock without a config has a default light-grey 0xA3A3A3 background
+# (checked in main.c, set_default_colors): on screen it looks almost white
+# and the indicator, even though it's on by default, is barely visible on
+# top of it. /etc/swaylock/config is read by default by every invocation
+# (SYSCONFDIR, confirmed in Fedora's swaylock.spec: %meson sets
+# _sysconfdir=/etc) - this covers both the Super+Alt+L bind and swayidle in
+# config.kdl, without having to repeat it in multiple places.
 mkdir -p /etc/swaylock
 cat > /etc/swaylock/config << 'EOF'
 color=1a1a1a
@@ -107,22 +168,23 @@ indicator
 show-failed-attempts
 EOF
 
-# keyd: niri non supporta un bind sul solo tasto Super (serve una "release bind",
-# non ancora implementata - vedi niri-wm/niri discussion #1492). Si intercetta il
-# tasto a livello di input driver: un tap isolato di Super invia Mod+W (gia'
-# legato a "toggle-overview" in config.kdl, l'Overview di niri con l'overlay di
-# ricerca di DMS sopra - il piu vicino a "Activities" di GNOME che niri abbia).
-# Tenuto premuto, Super continua a fare da modificatore per tutte le altre
-# combinazioni (Mod+D, Mod+E, ecc.), grazie a overloadt2.
-# keyd non e' nei repo Fedora/RPM Fusion: serve il repo Terra.
-# NB: si scrive il repo a mano (come vscode.repo/nordvpn.repo sotto) invece di
-# usare il pacchetto terra-release, che punta gpgkey a un file locale
-# (file:///etc/pki/rpm-gpg/RPM-GPG-KEY-terra$releasever). Quel file esiste nel
-# container durante la build, ma bootc-image-builder fa il suo depsolve per
-# l'ISO/qcow2 in un sandbox separato dove non c'e': "just build-iso" falliva con
-# "Could not read a file:// file for .../RPM-GPG-KEY-terra44". Con gpgkey su
-# URL https (come da subatomic-repos di Terra, pensato apposta per Fedora
-# Atomic) la chiave si puo' scaricare da qualunque contesto faccia il depsolve.
+# keyd: niri doesn't support a bind on the bare Super key (it would need a
+# "release bind", not implemented yet - see niri-wm/niri discussion #1492).
+# The key is intercepted at the input driver level instead: an isolated tap
+# of Super sends Mod+W (already bound to "toggle-overview" in config.kdl,
+# niri's Overview with DMS's search overlay on top - the closest thing niri
+# has to GNOME's "Activities"). Held down, Super keeps acting as a modifier
+# for every other combination (Mod+D, Mod+E, etc.), thanks to overloadt2.
+# keyd is not in the Fedora/RPM Fusion repos: the Terra repo is needed.
+# NB: the repo is written by hand (like vscode.repo/nordvpn.repo below)
+# instead of using the terra-release package, which points gpgkey at a local
+# file (file:///etc/pki/rpm-gpg/RPM-GPG-KEY-terra$releasever). That file
+# exists in the container during the build, but bootc-image-builder does its
+# own depsolve for the ISO/qcow2 in a separate sandbox where it doesn't
+# exist: "just build-iso" failed with "Could not read a file:// file for
+# .../RPM-GPG-KEY-terra44". With gpgkey on an https URL (as in Terra's
+# subatomic-repos, built specifically for Fedora Atomic) the key can be
+# downloaded from whatever context runs the depsolve.
 rpm --import "https://repos.fyralabs.com/terra$(rpm -E %fedora)/key.asc"
 cat > /etc/yum.repos.d/terra.repo << 'EOF'
 [terra]
@@ -148,7 +210,7 @@ leftmeta = overloadt2(meta, macro(M-w), 200)
 EOF
 systemctl enable keyd.service
 
-# greetd: login manager che lancia Niri tramite il greeter di Dank
+# greetd: login manager that launches Niri through Dank's greeter
 mkdir -p /etc/greetd/
 cat > /etc/greetd/config.toml << EOF
 [terminal]
@@ -161,17 +223,17 @@ rm -f /etc/systemd/system/display-manager.service
 ln -s /usr/lib/systemd/system/greetd.service /etc/systemd/system/display-manager.service
 systemctl enable --force greetd.service
 
-# Dotfile di default per ogni nuovo utente (Niri)
+# Default dotfiles for every new user (Niri)
 mkdir -p /etc/skel/.config/systemd/user/graphical-session.target.wants
 ln -s /usr/lib/systemd/user/dms.service /etc/skel/.config/systemd/user/graphical-session.target.wants/
 mkdir -p /etc/skel/.config/niri/
 cp -rf /ctx/dot_config/niri/config.kdl /etc/skel/.config/niri/
 
 # ---------------------------------------------------------------------------
-# Applicazioni richieste
+# Requested applications
 # ---------------------------------------------------------------------------
-# Dai repo gia' attivi (Fedora + negativo17 della base ublue).
-# Signal arriva da negativo17, dove il pacchetto si chiama Signal-Desktop.
+# From the repos already enabled (Fedora + negativo17 from the ublue base).
+# Signal comes from negativo17, where the package is called Signal-Desktop.
 dnf -y install \
     blender \
     hexchat \
@@ -181,9 +243,10 @@ dnf -y install \
     libreoffice-calc \
     Signal-Desktop
 
-# Visual Studio Code: non e' nei repo Fedora, si usa quello ufficiale Microsoft.
-# Si preferisce l'RPM al Flatpak perche' non e' in sandbox e quindi vede podman,
-# i toolchain e i file di sistema: su una macchina da sviluppo conta.
+# Visual Studio Code: not in the Fedora repos, using the official Microsoft
+# one. The RPM is preferred over the Flatpak because it isn't sandboxed and
+# so it can see podman, toolchains and system files: matters on a dev
+# machine.
 rpm --import https://packages.microsoft.com/keys/microsoft.asc
 cat > /etc/yum.repos.d/vscode.repo << 'EOF'
 [code]
@@ -196,10 +259,11 @@ gpgkey=https://packages.microsoft.com/keys/microsoft.asc
 EOF
 dnf -y install code
 
-# NordVPN: repo ufficiale (non e' su Flathub, esiste solo come RPM/DEB).
-# Solo la CLI: il pacchetto nordvpn fornisce /usr/bin/nordvpn e il demone
-# nordvpnd. Serve --exclude perche' "nordvpn" ha Recommends: nordvpn-gui,
-# che altrimenti rientrerebbe da solo (stesso caso di waybar e alacritty).
+# NordVPN: official repo (not on Flathub, only exists as RPM/DEB).
+# CLI only: the nordvpn package provides /usr/bin/nordvpn and the nordvpnd
+# daemon. --exclude is needed because "nordvpn" has Recommends: nordvpn-gui,
+# which would otherwise come back on its own (same case as waybar and
+# alacritty).
 rpm --import https://repo.nordvpn.com/gpg/nordvpn_public.asc
 cat > /etc/yum.repos.d/nordvpn.repo << 'EOF'
 [nordvpn]
@@ -211,21 +275,23 @@ gpgkey=https://repo.nordvpn.com/gpg/nordvpn_public.asc
 EOF
 dnf -y install nordvpn --exclude=nordvpn-gui
 
-# Il pacchetto crea il gruppo "nordvpn" direttamente in /etc/group, ma su bootc
-# /etc e' stato locale della macchina: un gruppo creato solo in fase di build
-# non e' stabile fra un aggiornamento e l'altro (e "bootc container lint" lo
-# segnala). Lo si dichiara a systemd, che lo ricrea al boot in modo affidabile.
-# Il GID resta a scelta di systemd: nessun file appartiene a questo gruppo,
-# serve solo a decidere chi puo' parlare col demone nordvpnd.
+# The package creates the "nordvpn" group directly in /etc/group, but on
+# bootc /etc is machine-local state: a group created only at build time
+# isn't stable across updates ("bootc container lint" flags it). It's
+# declared to systemd instead, which recreates it reliably at boot. The GID
+# is left up to systemd: no file belongs to this group, it's only used to
+# decide who can talk to the nordvpnd daemon.
 cat > /usr/lib/sysusers.d/nordvpn.conf << 'EOF'
 #Type Name    ID
 g     nordvpn -
 EOF
 
-# Antares SQL, MongoDB Compass e UltiMaker Cura esistono solo come Flatpak.
-# I Flatpak si installano in /var/lib/flatpak, che e' stato locale della macchina
-# e NON fa parte dell'immagine: vanno quindi installati al primo avvio.
-# Il remote flathub e' gia' fornito dalla base in /etc/flatpak/remotes.d/.
+# Antares SQL, MongoDB Compass, UltiMaker Cura and Android Studio only exist
+# as Flatpak (Android Studio isn't in the Fedora repos either).
+# Flatpaks are installed into /var/lib/flatpak, which is machine-local state
+# and is NOT part of the image: so they need to be installed on first boot.
+# The flathub remote is already provided by the base in
+# /etc/flatpak/remotes.d/.
 cat > /usr/libexec/iperos-install-flatpaks << 'EOF'
 #!/usr/bin/bash
 set -euo pipefail
@@ -234,11 +300,12 @@ APPS=(
     it.fabiodistasio.AntaresSQL
     com.mongodb.Compass
     com.ultimaker.cura
+    com.google.AndroidStudio
 )
 
 for app in "${APPS[@]}"; do
-    # Si installa solo cio' che manca: gli aggiornamenti li fa gia'
-    # flatpak-system-update.timer, quindi niente traffico inutile a ogni boot.
+    # Only install what's missing: updates are already handled by
+    # flatpak-system-update.timer, so no wasted traffic on every boot.
     if ! flatpak info --system "$app" > /dev/null 2>&1; then
         flatpak install --system --noninteractive flathub "$app" || true
     fi
@@ -248,7 +315,7 @@ chmod +x /usr/libexec/iperos-install-flatpaks
 
 cat > /usr/lib/systemd/system/iperos-flatpaks.service << 'EOF'
 [Unit]
-Description=Installa i Flatpak predefiniti di iperos
+Description=Install iperos' default Flatpaks
 Wants=network-online.target
 After=network-online.target flatpak-add-fedora-repos.service
 ConditionPathExists=/etc/flatpak/remotes.d/flathub.flatpakrepo
@@ -263,16 +330,17 @@ WantedBy=multi-user.target
 EOF
 systemctl enable iperos-flatpaks.service
 
-# Firefox Nightly: non e' nei repo Fedora e non esiste su Flathub (c'e' solo
-# org.mozilla.firefox stabile), quindi si usa il tarball ufficiale Mozilla.
-# Porta con se' il proprio NSS (richiede NSS_3.126, di sistema c'e' 3.123).
-# /usr e' read-only a runtime: l'updater interno va disattivato via policies.json,
-# l'aggiornamento avviene con la ricostruzione giornaliera dell'immagine.
+# Firefox Nightly: not in the Fedora repos and not on Flathub either (only
+# the stable org.mozilla.firefox is), so the official Mozilla tarball is
+# used. It ships its own NSS (requires NSS_3.126, the system has 3.123).
+# /usr is read-only at runtime: the internal updater has to be disabled via
+# policies.json, updates happen through the daily image rebuild instead.
 FF_DIR=/usr/lib/firefox-nightly
-# --retry-all-errors: senza, "--retry" riprova solo su un sottoinsieme di
-# errori "transitori" di curl, che NON include gli errori a livello protocollo
-# HTTP/2 (visto in build fallita: "HTTP/2 stream 1 was not closed cleanly:
-# PROTOCOL_ERROR") - sporadici verso il CDN di Mozilla, andati anche in retry.
+# --retry-all-errors: without it, "--retry" only retries a subset of curl's
+# "transient" errors, which does NOT include HTTP/2 protocol-level errors
+# (seen in a failed build: "HTTP/2 stream 1 was not closed cleanly:
+# PROTOCOL_ERROR") - sporadic against Mozilla's CDN, and not covered by
+# plain retry either.
 curl -L --retry 3 --retry-all-errors --fail -o /tmp/firefox-nightly.tar.xz \
   "https://download.mozilla.org/?product=firefox-nightly-latest-ssl&os=linux64&lang=en-US"
 rm -rf "$FF_DIR"
@@ -290,9 +358,9 @@ cat > "$FF_DIR/distribution/policies.json" << 'EOF'
 }
 EOF
 
-# Browser predefinito di sistema. Serve perche' la base registrava
-# org.mozilla.firefox come handler di http/https; rimosso quello, senza questo
-# file i link finirebbero al selettore di DMS (dms-open.desktop).
+# System default browser. Needed because the base registered
+# org.mozilla.firefox as the http/https handler; once that's removed,
+# without this file links would end up at DMS's picker (dms-open.desktop).
 cat > /etc/xdg/mimeapps.list << 'MIMEEOF'
 [Default Applications]
 text/html=firefox-nightly.desktop
@@ -307,7 +375,7 @@ cat > /usr/share/applications/firefox-nightly.desktop << EOF
 Type=Application
 Name=Firefox Nightly
 GenericName=Web Browser
-Comment=Naviga il web con Firefox Nightly
+Comment=Browse the web with Firefox Nightly
 Exec=/usr/bin/firefox-nightly %u
 Icon=$FF_DIR/browser/chrome/icons/default/default128.png
 Terminal=false
@@ -317,24 +385,23 @@ StartupNotify=true
 StartupWMClass=firefox-nightly
 EOF
 
-# DMS: dock in basso con le app. La barra e' gia' in alto (barConfigs default
-# position 0 = Top) e dockPosition e' gia' Bottom: manca solo showDock, che di
-# default e' false.
+# DMS: dock at the bottom with the apps. The bar is already at the top
+# (barConfigs default position 0 = Top) and dockPosition is already Bottom:
+# only showDock is missing, which defaults to false.
 #
-# dockSmartAutoHide: "Intelligent Auto-hide" (verificato in
-# Modules/Dock/DockBody.qml) - il dock resta sempre visibile e si nasconde solo
-# quando una finestra si sovrappone alla sua area, riapparendo al passaggio del
-# mouse. E' mutualmente esclusivo con dockAutoHide (nascosto sempre): non va
-# impostato insieme.
+# dockSmartAutoHide: "Intelligent Auto-hide" (checked in
+# Modules/Dock/DockBody.qml) - the dock stays always visible and only hides
+# when a window overlaps its area, reappearing on mouse hover. It's mutually
+# exclusive with dockAutoHide (always hidden): don't set both together.
 #
-# barConfigs: copia della "Main Bar" di default (Common/settings/SettingsSpec.js)
-# con "launcherButton" tolto da leftWidgets - e' il pulsante che apre il menu/
-# app-drawer agganciato alla barra. Al suo posto si usa l'Overview di niri
-# (Super o Mod+W, vedi keyd sopra) o Mod+D per lo spotlight di DMS.
-# ATTENZIONE: essendo una copia completa e non una chiave singola, un futuro
-# aggiornamento di DMS che aggiunga nuovi campi di default a barConfigs non si
-# propaga qui automaticamente: se la barra iniziasse a comportarsi in modo
-# strano dopo un bump di DMS, confrontare con il nuovo default upstream.
+# barConfigs: a copy of the default "Main Bar" (Common/settings/SettingsSpec.js)
+# with "launcherButton" removed from leftWidgets - it's the button that opens
+# the menu/app-drawer attached to the bar. Niri's Overview is used instead
+# (Super or Mod+W, see keyd above) or Mod+D for DMS's spotlight.
+# WARNING: since this is a full copy and not a single key, a future DMS
+# update that adds new default fields to barConfigs won't propagate here
+# automatically: if the bar starts behaving oddly after a DMS bump, compare
+# it against the new upstream default.
 mkdir -p /etc/skel/.config/DankMaterialShell
 cat > /etc/skel/.config/DankMaterialShell/settings.json << 'EOF'
 {
@@ -403,11 +470,13 @@ cat > /etc/skel/.config/DankMaterialShell/settings.json << 'EOF'
 }
 EOF
 
-# Voci di menu superflue nel launcher. Si nascondono con NoDisplay invece di
-# disinstallare: htop resta usabile da terminale, e gnome-system-monitor-kde e'
-# lo stesso pacchetto della voce GNOME buona, quindi non e' rimovibile a parte.
-# NB: /usr/local e' un symlink a /var/usrlocal su bootc, quindi non si possono
-# usare override in /usr/local/share/applications: si modifica il file in posto.
+# Superfluous menu entries in the launcher. Hidden with NoDisplay instead of
+# uninstalled: htop stays usable from the terminal, and
+# gnome-system-monitor-kde is the same package as the good GNOME entry, so it
+# can't be removed on its own.
+# NB: /usr/local is a symlink to /var/usrlocal on bootc, so overrides in
+# /usr/local/share/applications can't be used: the file is edited in place
+# instead.
 for entry in htop gnome-system-monitor-kde; do
     desktop_file="/usr/share/applications/${entry}.desktop"
     if [ -f "$desktop_file" ]; then
@@ -418,7 +487,7 @@ done
 #### Enable podman
 systemctl enable podman.socket
 
-# Disabilita i tip/alias di Origami (il file puo' sparire in una futura base image)
+# Disable Origami's tips/aliases (the file may disappear in a future base image)
 if [ -f /etc/profile.d/origami-aliases.sh ]; then
     mv /etc/profile.d/origami-aliases.sh /etc/profile.d/origami-aliases.sh.bak
 fi
