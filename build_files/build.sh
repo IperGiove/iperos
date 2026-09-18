@@ -366,6 +366,56 @@ cat > "$FF_DIR/distribution/policies.json" << 'EOF'
 }
 EOF
 
+# Ledger Live (Ledger Wallet): manages crypto assets, so the source matters.
+# No Fedora package and no official Flatpak exist (LedgerHQ/ledger-live
+# issues #3317 and #4686 are still open requests). The marketing page
+# (shop.ledger.com/pages/ledger-wallet, redirected from ledger.com/ledger-live)
+# links to download.live.ledger.com for the Linux download, but its button
+# URL is built by client-side JS and isn't a stable link to curl directly.
+# Instead this fetches the same electron-builder update manifest Ledger's
+# own app uses to check for updates - same domain, and it carries an
+# official sha512 to verify against instead of trusting TLS alone: the
+# build fails if the downloaded file doesn't match rather than silently
+# installing something unverified.
+LEDGER_DIR=/usr/lib/ledger-live
+curl -sL --fail -o /tmp/latest-linux.yml "https://download.live.ledger.com/latest-linux.yml"
+LEDGER_FILE=$(sed -n 's/^path: //p' /tmp/latest-linux.yml)
+LEDGER_SHA512=$(sed -n 's/^sha512: //p' /tmp/latest-linux.yml)
+curl -L --fail -o /tmp/ledger-live.AppImage "https://download.live.ledger.com/${LEDGER_FILE}"
+COMPUTED_SHA512=$(openssl dgst -sha512 -binary /tmp/ledger-live.AppImage | base64 -w0)
+if [ "$COMPUTED_SHA512" != "$LEDGER_SHA512" ]; then
+    echo "Ledger Live: sha512 mismatch, expected $LEDGER_SHA512, got $COMPUTED_SHA512" >&2
+    exit 1
+fi
+
+# Extracted instead of run as a mounted AppImage: no FUSE needed at runtime,
+# consistent with the rest of this read-only image. "--appimage-extract"
+# unpacks the bundled squashfs without mounting anything.
+chmod +x /tmp/ledger-live.AppImage
+rm -rf "$LEDGER_DIR"
+mkdir -p "$LEDGER_DIR"
+(cd /tmp && /tmp/ledger-live.AppImage --appimage-extract > /dev/null)
+mv /tmp/squashfs-root/* "$LEDGER_DIR"/
+rm -rf /tmp/ledger-live.AppImage /tmp/squashfs-root /tmp/latest-linux.yml
+ln -sf "$LEDGER_DIR/AppRun" /usr/bin/ledger-live
+
+# --no-sandbox: matches the Exec line Ledger ships in the bundled
+# ledger-live-desktop.desktop inside the AppImage itself (their own tested
+# default for AppImage installs), left as-is rather than guessing at a
+# different sandbox setup untested on a real display.
+cat > /usr/share/applications/ledger-live.desktop << EOF
+[Desktop Entry]
+Type=Application
+Name=Ledger Live
+Comment=Manage your crypto assets with a Ledger hardware wallet
+Exec=$LEDGER_DIR/AppRun --no-sandbox %U
+Icon=$LEDGER_DIR/ledger-live-desktop.png
+Terminal=false
+Categories=Finance;
+MimeType=x-scheme-handler/ledgerlive;x-scheme-handler/ledgerwallet;
+StartupWMClass=Ledger Wallet
+EOF
+
 # System default browser. Needed because the base registered
 # org.mozilla.firefox as the http/https handler; once that's removed,
 # without this file links would end up at DMS's picker (dms-open.desktop).
