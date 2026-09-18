@@ -101,6 +101,12 @@ dnf -y install x264-libs
 # Nightly below.
 dnf -y install golang uv
 
+# git: the base already pulls in git-core (provides the git CLI itself) as a
+# dependency of something else, but not the "git" meta-package (adds
+# perl-Git, git-email, etc.). Installed explicitly so it's guaranteed rather
+# than an incidental side effect of whatever pulled git-core in.
+dnf -y install git
+
 # task (go-task/Taskfile.dev): not in the Fedora repos, official Cloudsmith
 # repo. Only the main arch repo is needed to install the binary (the noarch
 # and SRPMS repos from the upstream instructions are not needed here).
@@ -415,6 +421,16 @@ Categories=Finance;
 MimeType=x-scheme-handler/ledgerlive;x-scheme-handler/ledgerwallet;
 StartupWMClass=Ledger Wallet
 EOF
+
+# Ledger udev rules: without these Ledger Live can't see the hardware wallet
+# over USB at all (the most common Linux support complaint for it). Official
+# LedgerHQ/udev-rules repo; fetched the static rules file directly instead
+# of piping their install script (add_udev_rules.sh) through bash. It uses
+# TAG+="uaccess" (systemd-logind grants access to the seat's logged-in user
+# automatically), not a "plugdev" group, so no user/group setup is needed on
+# top of this.
+curl -sL --fail -o /etc/udev/rules.d/20-hw1.rules \
+  "https://raw.githubusercontent.com/LedgerHQ/udev-rules/master/20-hw1.rules"
 
 # System default browser. Needed because the base registered
 # org.mozilla.firefox as the http/https handler; once that's removed,
