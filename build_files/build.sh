@@ -45,7 +45,7 @@ rm -f /etc/xdg/autostart/origami-migrate.desktop
 # VM/ISO/raw images are built with --rootfs=btrfs (see Justfile's
 # _build-bib and build-disk.yml), so the root filesystem on those images
 # actually is btrfs.
-dnf -y install flatpak-builder wlr-randr iotop sysstat lxqt-openssh-askpass lxpolkit parallel openssh-server btrfs-assistant
+dnf -y install flatpak-builder wlr-randr iotop sysstat lxqt-openssh-askpass lxpolkit parallel openssh-server btrfs-assistant distrobox
 
 # sshd doesn't start on its own even though the package is already in the
 # base: it has to be enabled explicitly. The user/password stay whatever the
