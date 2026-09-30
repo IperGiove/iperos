@@ -54,6 +54,20 @@ dnf -y install flatpak-builder wlr-randr iotop sysstat lxqt-openssh-askpass lxpo
 # this image).
 systemctl enable sshd.service
 
+# "ubuntu" command: enters an Ubuntu distrobox, creating it on first use.
+# The container can't be baked into the image (it lives in each user's
+# podman storage under ~), so it's created lazily per user instead.
+# Pinned to the LTS rather than :latest so an existing container's release
+# doesn't silently diverge from what a fresh one would get.
+cat > /etc/profile.d/iperos-ubuntu.sh << 'EOF'
+ubuntu() {
+    if ! podman container exists ubuntu; then
+        distrobox create -Y -n ubuntu -i quay.io/toolbx/ubuntu-toolbox:26.04 || return
+    fi
+    distrobox enter ubuntu "$@"
+}
+EOF
+
 # Nvidia + suspend: the machine has no S3 (only "s2idle" in
 # /sys/power/mem_sleep, checked by hand), so there's no way to get the
 # near-zero-power suspend of classic S3. Without these parameters the GPU
