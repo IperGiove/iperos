@@ -121,6 +121,26 @@ dnf -y install golang uv
 # than an incidental side effect of whatever pulled git-core in.
 dnf -y install git
 
+# Dev and network debugging tools missing from the base. The base already
+# ships tcpdump, traceroute, mtr, whois, ethtool, bind-utils and net-tools.
+#   gh             GitHub CLI
+#   android-tools  adb/fastboot (Android Studio itself is a Flatpak, see below)
+#   nmap/ncat      port scanning, raw TCP/UDP connections
+#   iperf3/socat   bandwidth tests, socket relaying/forwarding
+#   strace/gdb     syscall tracing and debugging
+#   make/gcc       basic builds, and cgo for Go
+#   yt-dlp         from the repos rather than pip, so it stays current with the
+#                  daily rebuild (sites break it often)
+# wireshark-cli left out on purpose: it creates a "wireshark" group in
+# /etc/group at build time, the same bootc problem as nordvpn below.
+dnf -y install gh android-tools nmap nmap-ncat iperf3 socat strace gdb make gcc yt-dlp
+
+# Java: the current LTS rather than java-latest-openjdk, which jumps major
+# version every 6 months (26 -> 27...) and can break Gradle/tooling with each
+# daily rebuild. -devel for the full JDK (javac), not just the runtime. Older
+# targets are still covered with "javac --release 17/21".
+dnf -y install java-25-openjdk-devel
+
 # task (go-task/Taskfile.dev): not in the Fedora repos, official Cloudsmith
 # repo. Only the main arch repo is needed to install the binary (the noarch
 # and SRPMS repos from the upstream instructions are not needed here).
