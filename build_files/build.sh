@@ -68,6 +68,12 @@ ubuntu() {
 }
 EOF
 
+# "rs": rsync shorthand for copying to/from remote hosts (-a archive,
+# -z compress, -h human-readable sizes, --progress per-file progress).
+cat > /etc/profile.d/iperos-aliases.sh << 'EOF'
+alias rs='rsync -zvrah --progress'
+EOF
+
 # Nvidia + suspend: the machine has no S3 (only "s2idle" in
 # /sys/power/mem_sleep, checked by hand), so there's no way to get the
 # near-zero-power suspend of classic S3. Without these parameters the GPU
