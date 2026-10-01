@@ -131,9 +131,12 @@ dnf -y install git
 #   make/gcc       basic builds, and cgo for Go
 #   yt-dlp         from the repos rather than pip, so it stays current with the
 #                  daily rebuild (sites break it often)
+#   sqlite         sqlite3 CLI
+#   postgresql     client only (psql, pg_dump): the server belongs in a
+#                  container, not in the image
 # wireshark-cli left out on purpose: it creates a "wireshark" group in
 # /etc/group at build time, the same bootc problem as nordvpn below.
-dnf -y install gh android-tools nmap nmap-ncat iperf3 socat strace gdb make gcc yt-dlp
+dnf -y install gh android-tools nmap nmap-ncat iperf3 socat strace gdb make gcc yt-dlp sqlite postgresql
 
 # Java: the current LTS rather than java-latest-openjdk, which jumps major
 # version every 6 months (26 -> 27...) and can break Gradle/tooling with each
