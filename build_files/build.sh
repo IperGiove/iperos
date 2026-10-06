@@ -70,8 +70,16 @@ EOF
 
 # "rs": rsync shorthand for copying to/from remote hosts (-a archive,
 # -z compress, -h human-readable sizes, --progress per-file progress).
+# "sqlite3": readable output by default. Box mode draws a table with the
+# column names as header; long text is wrapped at 50 chars on word
+# boundaries instead of stretching the table. NULLs are shown explicitly
+# (otherwise they look like empty strings), and every statement reports its
+# run time and the number of rows it changed. Aliases only apply to
+# interactive shells, so scripts still get the plain default output;
+# "command sqlite3" or "\sqlite3" bypasses it by hand.
 cat > /etc/profile.d/iperos-aliases.sh << 'EOF'
 alias rs='rsync -zvrah --progress'
+alias sqlite3='sqlite3 -cmd ".mode box --wrap 50 --wordwrap on" -nullvalue NULL -cmd ".timer on" -cmd ".changes on"'
 EOF
 
 # Nvidia + suspend: the machine has no S3 (only "s2idle" in
