@@ -111,7 +111,7 @@ EOF
 #   gnome-calculator  <- cosmic-ext-calculator            celluloid <- cosmic-player
 #   snapshot          <- cosmic-ext-camera
 #   loupe / file-roller: were missing entirely before
-dnf -y install nautilus gnome-terminal gnome-system-monitor \
+dnf -y install nautilus ptyxis gnome-system-monitor \
   gnome-text-editor papers gnome-calculator loupe file-roller celluloid snapshot
 
 # CHOICE: ffmpeg + RPM Fusion codecs kept (for video playback/decoding), but
@@ -180,7 +180,8 @@ EOF
 mkdir -p /var/usrlocal/share/zsh/site-functions
 dnf -y install task
 
-# Nautilus "open any terminal" -> points to gnome-terminal (used to be kitty)
+# Nautilus "open any terminal" -> points to Ptyxis (used to be kitty, then
+# gnome-terminal). Ptyxis is the GNOME/Fedora Workstation default terminal.
 curl -Lo /etc/yum.repos.d/nautilus-open-any-terminal.repo \
   https://copr.fedorainfracloud.org/coprs/monkeygold/nautilus-open-any-terminal/repo/fedora-$(rpm -E %fedora)/monkeygold-nautilus-open-any-terminal-fedora-$(rpm -E %fedora).repo
 dnf install -y nautilus-open-any-terminal
@@ -189,13 +190,13 @@ dnf install -y nautilus-open-any-terminal
 #     instead.
 cat > /usr/share/glib-2.0/schemas/zz-iperos-open-any-terminal.gschema.override << 'EOF'
 [com.github.stunkymonkey.nautilus-open-any-terminal]
-terminal='gnome-terminal'
+terminal='ptyxis'
 EOF
 glib-compile-schemas /usr/share/glib-2.0/schemas
 
 # Install Niri
 # niri "Recommends: waybar,alacritty", which would come back after the
-# removal above (gnome-terminal and DMS's bar are used instead). The other
+# removal above (Ptyxis and DMS's bar are used instead). The other
 # weak deps are needed: gnome-keyring (Secret portal), wireplumber (wpctl),
 # xdg-desktop-portal-gnome (the backend niri-portals.conf uses for
 # screencast).
